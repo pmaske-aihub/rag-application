@@ -36,3 +36,38 @@ This project implements a basic Retrieval-Augmented Generation (RAG) pipeline us
 python -m venv venv
 .\venv\Scripts\activate # On Windows
 source venv/bin/activate # On macOS/Linux
+```
+
+### 3. Install Python Dependencies
+```bash
+pip install llama-index llama-index-llms-ollama llama-index-embeddings-ollama llama-index-vector-stores-postgres psycopg2-binary sqlalchemy docx2txt
+```
+### 4. Database Configuration
+
+* Ensure your PostgreSQL database (`ragdb` in the example) is created and accessible.
+* Verify that your database user (`postgres` in the example) has the necessary permissions to create tables and write data.
+
+## Usage
+* Clone the repo or extract the zip file.
+* Place the pdf and docx files into `./src/data` directory.
+* After activating the virtual environment on VS Code select Run > Run without Debugging (or Ctrl+F5)
+* Open new terminal and run the fastapi app
+```bash
+uvicorn src.api:app --reload --host 0.0.0.0 --port 5601
+```
+* Visit `http://localhost:5601/docs` on the web browser to access the Swagger UI.
+* In the POST /chat/completions endpoint, execute the sameple request body
+```bash
+{
+  "model": "llama3.2:3b",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Based on the penalties section, what are the different levels of disciplinary actions for various infringements, and how do they relate to preserving pension or bonus rights?"
+    }
+  ],
+  "temperature": 0.7
+}
+```
+* Check for the request body for retrieved response. Detailed response is shown inside "content" tag.
+
