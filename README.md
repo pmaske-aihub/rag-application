@@ -27,7 +27,7 @@ This project implements a basic Retrieval-Augmented Generation (RAG) pipeline us
     ollama pull llama3.2:3b
     ollama pull nomic-embed-text
     ```
-*   **PostgreSQL:** Install PostgreSQL and ensure the `pgvector` extension is enabled in your database. You might need to run `CREATE EXTENSION IF NOT EXISTS vector;` in your PostgreSQL database, {Link: according to LlamaIndex https://docs.llamaindex.ai/en/v0.10.20/examples/vector_stores/postgres.html}.
+*   **PostgreSQL:** Install PostgreSQL and ensure the `pgvector` extension is enabled in your database. You might need to run `CREATE EXTENSION IF NOT EXISTS vector;` in your PostgreSQL database, {https://github.com/pgvector/pgvector?tab=readme-ov-file#getting-started}.
 *   **Python:** Ensure you have Python installed (preferably Python 3.9+).
 
 ### 2. Create and Activate a Virtual Environment
