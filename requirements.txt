@@ -1,0 +1,29 @@
+# Core LlamaIndex
+llama-index==0.11.14
+llama-index-core
+llama-index-llms-ollama
+llama-index-embeddings-ollama
+llama-index-vector-stores-pgvecto-rs
+llama-index-vector-stores-postgres
+
+# Database
+psycopg2-binary
+sqlalchemy
+
+# Document processing
+docling
+
+# Agentic framework
+crewai
+crewai-tools
+
+# Observability
+arize-phoenix
+openinference-instrumentation-llama-index
+llama-index-callbacks-arize-phoenix
+ragas
+python-dotenv
+
+# API
+fastapi
+uvicorn
