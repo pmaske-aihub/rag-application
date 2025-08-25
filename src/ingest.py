@@ -1,12 +1,13 @@
 # ingest.py
 import logging
-from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext, Settings
+from llama_index.core import SimpleDirectoryReader, VectorStoreIndex, StorageContext, Settings, Document
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.llms.ollama import Ollama
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.vector_stores.postgres import PGVectorStore
 from sqlalchemy import make_url
 from psycopg2 import sql, connect
+import os
 
 # Configure logging for better visibility
 logging.basicConfig(level=logging.INFO)
@@ -38,10 +39,19 @@ if __name__ == "__main__":
 
     # 1. Load and parse documents
     try:
-        # Create a directory named 'data' and place your text documents (e.g., .txt, .pdf) inside it.
         documents = SimpleDirectoryReader(input_dir="./src/data").load_data()
         logger.info(f"Loaded {len(documents)} documents.")
-        # logger.debug(f"First document content: {documents[0].text[:200]}...") # Log first 200 chars
+
+        # Add file name metadata
+        for doc in documents:
+            if "file_name" in doc.metadata:
+                doc.metadata["source"] = doc.metadata["file_name"]
+            else:
+                # fallback to "unknown" if file_name not captured
+                doc.metadata["source"] = "unknown"
+
+        logger.info("Attached source filename metadata to documents.")
+
     except Exception as e:
         logger.error(f"Error loading documents: {e}", exc_info=True)
         exit(1)
@@ -60,43 +70,28 @@ if __name__ == "__main__":
             user=url.username,
             table_name=table_name, 
             embed_dim=embed_dim, 
-            # If the table doesn't exist, it will be created by LlamaIndex
         )
         logger.info("PGVectorStore instance created.")
     except Exception as e:
         logger.error(f"Error connecting to PGVectorStore: {e}", exc_info=True)
         exit(1)
 
-
     # 4. Build the LlamaIndex Index
     node_parser = SentenceSplitter(chunk_size=512, chunk_overlap=20)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
     try:
-        # Build the index from the loaded documents and store it in PGVector.
-        # This will create the embeddings and insert them into the 'documents' table.
         vector_index = VectorStoreIndex.from_documents(
             documents,
             storage_context=storage_context,
             transformations=[node_parser],
         )
-        logger.info("LlamaIndex built and stored in PGVector.")
-        
-        # If you have an existing index and are only adding new documents,
-        # you would typically load the index first and then insert.
-        # For a fresh build or re-ingestion, from_documents is fine.
-        # The loop below is redundant if from_documents was just called on all docs.
-        # If you were adding *new* documents to an *existing* index:
-        # vector_index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
-        # for doc in new_documents_to_add:
-        #     vector_index.insert(doc)
-
+        logger.info("LlamaIndex built and stored in PGVector with source metadata.")
     except Exception as e:
         logger.error(f"Error building or ingesting into LlamaIndex: {e}", exc_info=True)
         exit(1)
 
     # 5. Create a Basic Query Engine (Optional in ingest.py, good for testing)
-    # Configure LlamaIndex to use the Ollama LLM.
     Settings.llm = Ollama(model="llama3.2:3b", request_timeout=120.0, base_url="http://localhost:11434")
     logger.info("Ollama LLM configured for testing.")
 
@@ -111,6 +106,11 @@ if __name__ == "__main__":
         try:
             response = query_engine.query(query_text)
             print(f"Response: {response}")
+
+            # Print sources for debugging
+            if hasattr(response, "source_nodes"):
+                sources = [node.metadata.get("source", "unknown") for node in response.source_nodes]
+                print(f"Sources: {', '.join(set(sources))}")
+
         except Exception as e:
             print(f"Error during query: {e}")
-
