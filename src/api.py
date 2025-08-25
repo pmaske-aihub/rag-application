@@ -103,8 +103,17 @@ async def startup_event():
 async def read_root():
     return {"message": "LlamaIndex RAG API is running. Use /chat/completions to ask questions."}
 
+@app.get("/v1/models")
+async def list_models():
+    return {
+        "data": [
+            {"id": "llama3.2:3b"},
+            {"id": "nomic-embed-text"}
+        ]
+    }
+
 # Changed endpoint to be OpenAI compatible
-@app.post("/chat/completions")
+@app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
     if query_engine is None:
         logger.error("Query engine not initialized. Cannot process query.")
@@ -126,15 +135,24 @@ async def chat_completions(request: ChatCompletionRequest):
 
     try:
         response = query_engine.query(user_query)
+
+        # Get the main text
         rag_response_content = str(response)
 
-        # Format the response into an OpenAI-compatible ChatCompletionResponse
-        return ChatCompletionResponse(
-            model=request.model, # Use the model name sent by Open WebUI
-            choices=[ChatCompletionResponseChoice(
-                message=Message(role="assistant", content=rag_response_content)
-            )]
-        )
+        # Collect source document names
+        sources = []
+        if hasattr(response, "source_nodes"):
+            for node in response.source_nodes:
+                if "source" in node.metadata:
+                    sources.append(node.metadata["source"])
+
+        # Deduplicate sources
+        sources = list(set(sources))
+
+        # Append sources to the response text
+        if sources:
+            rag_response_content += f"\n\nSources: {', '.join(sources)}"
+
     except Exception as e:
         logger.error(f"Error processing query '{user_query}': {e}", exc_info=True)
         raise HTTPException(
