@@ -9,10 +9,18 @@ from llama_index.vector_stores.postgres import PGVectorStore
 from sqlalchemy import make_url
 import uvicorn
 import logging
+from .crew_wrapper import PromptOptimizer
+from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
+from phoenix.otel import register
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# initialize phoenix
+tracer_provider = register()
+LlamaIndexInstrumentor().instrument(tracer_provider=tracer_provider)
+
 
 app = FastAPI(
     title="LlamaIndex RAG API",
@@ -117,7 +125,10 @@ async def chat_completions(request: ChatCompletionRequest):
     logger.info(f"User query: {user_query}")
 
     try:
+        optimizer = PromptOptimizer(query_engine)
         response = query_engine.query(user_query)
+        response = optimizer.optimize_and_query(user_query)
+        
         rag_response_content = str(response)
 
         # Collect sources
@@ -148,6 +159,7 @@ async def chat_completions(request: ChatCompletionRequest):
             status_code=500,
             detail=f"Error processing query: {e}"
         )
+    
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5601)
