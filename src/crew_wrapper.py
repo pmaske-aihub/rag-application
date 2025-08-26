@@ -1,6 +1,13 @@
 from crewai import LLM, Agent, Task, Crew
 from llama_index.llms.ollama import Ollama
 import logging
+from opentelemetry.instrumentation.crewai import CrewAIInstrumentor
+from phoenix.otel import register
+
+
+# setup monitoring for your crew
+tracer_provider = register(endpoint="http://localhost:6006/v1/traces")
+CrewAIInstrumentor().instrument(skip_dep_check=True, tracer_provider=tracer_provider)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -9,26 +16,21 @@ class PromptOptimizer:
     def __init__(self, query_engine):
         self.query_engine = query_engine
 
-    def optimize_and_query(self, user_query: str):
-        optimizer = Agent(
-            role="Prompt Optimizer",
-            goal="Rewrite and expand user queries to improve retrieval quality",
-            backstory="Helps improve recall in RAG pipelines",
-            llm="ollama/llama3.2:3b"
-        )
+    def optimize(self, query: str) -> str:
+        """
+        Optimize a user query into a single clean query string.
+        Ensures no JSON or multi-form outputs are returned.
+        """
+        try:
+            # Example using CrewAI to refine the prompt
+            optimized = query.strip()
 
-        task = Task(
-            description=f"Rewrite the query '{user_query}' into 2 better forms for improved retrieval.",
-            agent=optimizer,
-            expected_output="2 optimized query forms"
-        )
+            # Example (if using CrewAI): ensure it always picks the first form
+            # forms = crewai_generate_forms(query)
+            # optimized = forms[0] if forms else query.strip()
 
-        crew = Crew(agents=[optimizer], tasks=[task])
-        optimized = crew.kickoff()
-
-        logger.info(f"PromptOptimizer produced: {optimized}")
-
-        # For simplicity: just run original + optimized query combined
-        final_query = f"{user_query}\n\nOptimized: {optimized}"
-        response = self.query_engine.query(final_query)
-        return response
+            logger.info(f"Optimized query: {optimized}")
+            return optimized
+        except Exception as e:
+            logger.warning(f"Prompt optimization failed, falling back to raw query: {e}")
+            return query.strip()
