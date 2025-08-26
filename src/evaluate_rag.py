@@ -1,40 +1,47 @@
-import logging, requests
+import logging
+import requests
 from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import (
     context_precision,
-    context_recall,
-    faithfulness,
-    answer_relevancy
+    context_recall
+    # faithfulness, # excluding for demo purpose as it is breaking complex JSON resulting in timeout error.
+    # answer_relevancy # excluding for demo purpose as it is breaking complex JSON resulting in timeout error.
 )
 
-# ✅ Use LangChain's Ollama integration
-from langchain_community.llms import Ollama as LangchainOllama
-from langchain_community.embeddings import OllamaEmbeddings
+# Use LangChain's new Ollama integration
+from langchain_ollama import OllamaLLM, OllamaEmbeddings
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 API_URL = "http://localhost:5601/v1/chat/completions"
 
-def query_rag_app(question: str) -> str:
+def query_rag_app(question: str):
+    """Send a query to the RAG API and return assistant response + contexts."""
     payload = {
         "model": "llama3.2:3b",
-        "messages": [
-            {"role": "user", "content": question}
-        ]
+        "messages": [{"role": "user", "content": question}]
     }
     response = requests.post(API_URL, json=payload, timeout=120)
     response.raise_for_status()
     data = response.json()
 
-    # Extract assistant reply
-    return data["choices"][0]["message"]["content"]
+    answer = data["choices"][0]["message"]["content"]
+
+    # Try to extract contexts (sources) if returned
+    sources = []
+    if "Sources:" in answer:
+        try:
+            sources = answer.split("Sources:")[-1].strip().split(",")
+            sources = [s.strip() for s in sources]
+        except Exception:
+            sources = []
+
+    return answer, sources
 
 
 def build_dataset():
-    # Ground-truth Q&A pairs for evaluation
     questions = [
         "What are the disciplinary actions in the penalty clauses?",
         "Which financial rules violations lead to fines?"
@@ -44,55 +51,46 @@ def build_dataset():
         "Fines are imposed for financial misconduct."
     ]
 
-    # Run queries against your RAG app
-    answers = []
-    contexts = []  # Optionally you can log retrieved chunks here
+    answers, contexts = [], []
 
     for q in questions:
-        ans = query_rag_app(q)
+        ans, ctx = query_rag_app(q)
         answers.append(ans)
-        contexts.append([])  # if your API can return retrieved docs, put them here
+        contexts.append(ctx)
 
-    data = {
+    return Dataset.from_dict({
         "question": questions,
-        "answer": answers,        # from your system
-        "contexts": contexts,     # keep empty or populate later
+        "answer": answers,
+        "contexts": contexts,
         "ground_truth": ground_truths
-    }
-    return Dataset.from_dict(data)
+    })
 
 
 def run_evaluation():
     dataset = build_dataset()
 
-    metrics = [context_precision, context_recall, faithfulness, answer_relevancy]
+    #metrics = [context_precision, context_recall, faithfulness, answer_relevancy]
+    metrics = [context_precision, context_recall]
 
     logger.info("Running RAGAs evaluation with Ollama...")
 
-    # LangChain wrappers (compatible with Ragas)
-    ollama_llm = LangchainOllama(model="llama3.2:3b", base_url="http://localhost:11434")
+    # Correct LangChain wrappers (works with RAGAS) since RAGAS does not work with llama_index. Using model with 3b for better performance.
+    ollama_llm = OllamaLLM(model="llama3.2:3b", base_url="http://localhost:11434")
     ollama_embed = OllamaEmbeddings(model="nomic-embed-text", base_url="http://localhost:11434")
 
-    # Pass into ragas evaluate
     result = evaluate(
         dataset,
         metrics=metrics,
         llm=ollama_llm,
-        embeddings=ollama_embed
+        embeddings=ollama_embed,
     )
 
     logger.info("Evaluation complete.")
 
     # Per-sample results
     df = result.to_pandas()
-    print("📊 Per-sample evaluation results:")
+    print("Per-sample evaluation results:")
     print(df)
-
-    # Aggregate scores
-    print("\n Aggregate Scores:")
-    for metric_name, score in result.scores:
-        print(f"  {metric_name}: {score:.3f}")
-
 
 if __name__ == "__main__":
     run_evaluation()
