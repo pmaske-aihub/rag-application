@@ -1,4 +1,3 @@
-# api.py (Updated with Sources in Response)
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -9,25 +8,33 @@ from llama_index.vector_stores.postgres import PGVectorStore
 from sqlalchemy import make_url
 import uvicorn
 import logging
-from .crew_wrapper import PromptOptimizer
+from .router import RAGRouter
 from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
 from phoenix.otel import register
 
-# Configure logging
+# -------------------------------
+# Logging
+# -------------------------------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("rag-api")
 
-# initialize phoenix
+# -------------------------------
+# Phoenix Instrumentation
+# -------------------------------
 tracer_provider = register()
 LlamaIndexInstrumentor().instrument(tracer_provider=tracer_provider)
 
-
+# -------------------------------
+# FastAPI App
+# -------------------------------
 app = FastAPI(
     title="LlamaIndex RAG API",
-    description="API to query LlamaIndex RAG built with Ollama and PGVector"
+    description="Contextual RAG API with Ollama + PGVector"
 )
 
-# --- Pydantic Models (OpenAI Compatibility) ---
+# -------------------------------
+# Pydantic Models
+# -------------------------------
 class Message(BaseModel):
     role: str
     content: str
@@ -48,21 +55,26 @@ class ChatCompletionResponse(BaseModel):
     model: str
     choices: List[ChatCompletionResponseChoice]
 
-# --- Globals ---
+# -------------------------------
+# Globals & Config
+# -------------------------------
 query_engine = None
+router = None
 
-# --- Configuration ---
 db_name = "ragdb"
 connection_string = f"postgresql://postgres:postgres@localhost:5432/{db_name}"
 url = make_url(connection_string)
 table_name = "documents"
 embed_dim = 768
 
+# -------------------------------
+# Startup Init
+# -------------------------------
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the LlamaIndex query engine on FastAPI startup."""
-    global query_engine
-    logger.info("Initializing LlamaIndex RAG system...")
+    """Initialize LlamaIndex + PGVector on startup"""
+    global query_engine, router
+    logger.info("Initializing RAG system...")
 
     try:
         # Embedding + LLM
@@ -90,62 +102,62 @@ async def startup_event():
         )
 
         query_engine = vector_index.as_query_engine()
-        logger.info("Query engine created successfully.")
+        retriever = vector_index.as_retriever()
+
+        # Router for contextual decision
+        router = RAGRouter(retriever, query_engine, Settings.llm, threshold=0.5)
+
+        logger.info("RAG system initialized successfully.")
 
     except Exception as e:
         logger.error(f"Startup error: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to initialize LlamaIndex RAG system: {e}"
-        )
+        raise HTTPException(status_code=500, detail="Failed to initialize RAG system")
 
+# -------------------------------
+# Endpoints
+# -------------------------------
 @app.get("/")
-async def read_root():
-    return {"message": "LlamaIndex RAG API is running. Use /chat/completions to ask questions."}
+async def root():
+    return {"message": "RAG API is running. Use /v1/chat/completions."}
 
 @app.get("/v1/models")
 async def list_models():
-    return {
-        "data": [
-            {"id": "llama3.2:3b"},
-            {"id": "nomic-embed-text"}
-        ]
-    }
+    return {"data": [{"id": "llama3.2:3b"}, {"id": "nomic-embed-text"}]}
 
 @app.post("/v1/chat/completions")
 async def chat_completions(request: ChatCompletionRequest):
-    if query_engine is None:
+    if query_engine is None or router is None:
         raise HTTPException(status_code=503, detail="RAG system not ready.")
 
     # Extract latest user query
-    user_query = next((m.content for m in request.messages if m.role == "user"), None)
+    user_query = next((m.content for m in reversed(request.messages) if m.role == "user"), None)
     if not user_query:
         raise HTTPException(status_code=400, detail="No user query found in messages.")
 
     logger.info(f"User query: {user_query}")
 
     try:
-        optimizer = PromptOptimizer(query_engine)
-        response = query_engine.query(user_query)
-        response = optimizer.optimize_and_query(user_query)
-        
-        rag_response_content = str(response)
+        # --- Simple chit-chat handling (skip RAG for greetings/small-talk) ---
+        if user_query.lower() in ["hi", "hello", "hey", "hello there", "how are you?"]:
+            reply = "Hello 👋! I'm your AI assistant. You can ask me questions about the documents I've been trained on."
+            return ChatCompletionResponse(
+                model=request.model,
+                choices=[ChatCompletionResponseChoice(
+                    message=Message(role="assistant", content=reply)
+                )]
+            )
 
-        # Collect sources
-        sources = []
-        if hasattr(response, "source_nodes"):
-            for node in response.source_nodes:
-                src = node.metadata.get("source", None)
-                if src:
-                    sources.append(src)
+        # --- Route & answer ---
+        result = router.decide_and_answer(user_query)
 
-        sources = list(set(sources))
-        if sources:
-            rag_response_content += f"\n\nSources: {', '.join(sources)}"
+        # Build response with sources (file name + page)
+        rag_response_content = result["answer"]
+        if result.get("sources"):
+            formatted_sources = [f"{s['file_name']} (page {s['page_label']})"
+                                 for s in result["sources"] if "file_name" in s]
+            if formatted_sources:
+                rag_response_content += f"\n\nSources: {', '.join(formatted_sources)}"
 
-        print('Sources:', sources[:5])  # Log first 5 sources for debugging
-
-        # Return OpenAI-compatible response
         return ChatCompletionResponse(
             model=request.model,
             choices=[ChatCompletionResponseChoice(
@@ -155,11 +167,10 @@ async def chat_completions(request: ChatCompletionRequest):
 
     except Exception as e:
         logger.error(f"Error during query: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error processing query: {e}"
-        )
-    
+        raise HTTPException(status_code=500, detail=f"Error processing query: {e}")
 
+# -------------------------------
+# Main Entrypoint
+# -------------------------------
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5601)
+    uvicorn.run(app, host="0.0.0.0", port=5601, workers=4)
