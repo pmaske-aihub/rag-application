@@ -1,35 +1,35 @@
-# 🚀 Contextual RAG Chatbot with LlamaIndex, Ollama & PGVector
+# Contextual RAG Chatbot with LlamaIndex, Ollama & PGVector
 
 This project is an **interactive chatbot** built as part of an interview exercise, showcasing a modern **Contextual RAG (Retrieval-Augmented Generation) pipeline**.  
 It demonstrates document ingestion, vector storage, local LLM inference, dynamic routing, evaluation, and monitoring — all running **locally** using **open-source tools**.
 
 ---
 
-## ✨ Features
+## Features
 
-### 📂 Document Ingestion & Storage
+### Document Ingestion & Storage
 - Supports **PDFs, DOCX**, and other document formats.
 - Stored in **PostgreSQL (`ragdb`)** with **PGVector** extension for embeddings.
 
-### 🔎 Contextual RAG Pipeline
+### Contextual RAG Pipeline
 - **LlamaIndex** used to build retrievers and query engines.
 - **Ollama models** (`nomic-embed-text` + `llama3.2:3b`) for embeddings and generation.
 - **Dynamic Router**: Chooses between RAG and direct LLM responses (for chit-chat / non-document queries).
 
-### 🤖 Interactive Query API
+### Interactive Query API
 - **FastAPI backend** with `/chat/completions` endpoint.
 - Compatible with **Open WebUI** for interactive chatbot usage.
 
-### 📊 Evaluation & Monitoring
+### Evaluation & Monitoring
 - **RAGAs**: Evaluates precision, recall, faithfulness, and answer relevance.
 - **Arize Phoenix**: Observability for prompts, RAG pipeline monitoring, and agent tracing.
 
-### 🛠️ Extensible Design
+### Extensible Design
 - Ready for **Crew.AI-based prompt optimization**, rerankers, and agent orchestration.
 
 ---
 
-## 🖥️ Tech Stack
+## Tech Stack
 - **LLM & Embeddings:** Ollama (`nomic-embed-text`, `llama3.2:3b`)
 - **RAG Framework:** LlamaIndex
 - **Database:** PostgreSQL with PGVector
